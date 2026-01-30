@@ -1,0 +1,36 @@
+name: Stahování z úřední desky JMK
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+jobs:
+  stahovani:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repozitare
+        uses: actions/checkout@v4
+      
+      - name: Nastaveni Pythonu
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Instalace zavislosti
+        run: |
+          pip install requests pymysql
+      
+      - name: Spusteni skriptu
+        env:
+          FTP_HOST: ${{ secrets.FTP_HOST }}
+          FTP_USER: ${{ secrets.FTP_USER }}
+          FTP_PASS: ${{ secrets.FTP_PASS }}
+          FTP_PATH: ${{ secrets.FTP_PATH }}
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASS: ${{ secrets.DB_PASS }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+        run: |
+          python edeska_jmk.py

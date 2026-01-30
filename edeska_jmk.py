@@ -137,6 +137,7 @@ def sanitize_filename(filename: str) -> str:
     name = remove_diacritics(name)
     ext = remove_diacritics(ext)
     name = name.replace(' ', '_')
+    name = name.replace("'", "")  # Odstranit apostrofy
     name = re.sub(r'[^a-zA-Z0-9_\-]', '', name)
     
     return name + ext
@@ -171,7 +172,8 @@ def escape_sql(text: str) -> str:
     """Escapuje text pro SQL."""
     if text is None:
         return "NULL"
-    escaped = text.replace("\\", "\\\\").replace("'", "\\'").replace('"', '\\"')
+    # Nahradit backslash a apostrof
+    escaped = text.replace("\\", "\\\\").replace("'", "''")
     return f"'{escaped}'"
 
 

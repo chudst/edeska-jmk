@@ -16,7 +16,6 @@ import random
 import ftplib
 import requests
 import unicodedata
-import pymysql
 from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import urljoin
@@ -31,16 +30,14 @@ YESTERDAY = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
 FROM_DATE = YESTERDAY
 TO_DATE = YESTERDAY
 
-# FTP a DB konfigurace se ctou z environment variables (GitHub Secrets)
+# FTP konfigurace se cte z environment variables (GitHub Secrets)
 FTP_HOST = os.environ.get("FTP_HOST", "")
 FTP_USER = os.environ.get("FTP_USER", "")
 FTP_PASS = os.environ.get("FTP_PASS", "")
 FTP_PATH = os.environ.get("FTP_PATH", "")
 
-DB_HOST = os.environ.get("DB_HOST", "")
-DB_USER = os.environ.get("DB_USER", "")
-DB_PASS = os.environ.get("DB_PASS", "")
-DB_NAME = os.environ.get("DB_NAME", "")
+# Cesta pro SQL soubor na FTP (relativne k FTP_PATH)
+SQL_FILENAME = "jmk_import.sql"
 
 # Pauzy mezi requesty (v sekundach)
 PAUSE_MIN = 2.0
@@ -168,50 +165,45 @@ def upload_to_ftp(local_path: Path, remote_filename: str) -> bool:
         return False
 
 
-# ================== DATABAZE ==================
+# ================== SQL SOUBOR ==================
 
-def get_db_connection():
-    """Vytvori pripojeni k databazi."""
-    if not all([DB_HOST, DB_USER, DB_PASS, DB_NAME]):
-        return None
+def escape_sql(text: str) -> str:
+    """Escapuje text pro SQL."""
+    if text is None:
+        return "NULL"
+    escaped = text.replace("\\", "\\\\").replace("'", "\\'").replace('"', '\\"')
+    return f"'{escaped}'"
+
+
+class SQLGenerator:
+    def __init__(self, filepath: Path):
+        self.filepath = filepath
+        self.statements = []
     
-    try:
-        return pymysql.connect(
-            host=DB_HOST,
-            user=DB_USER,
-            password=DB_PASS,
-            database=DB_NAME,
-            charset='utf8mb4'
-        )
-    except Exception as e:
-        log(f"DB pripojeni selhalo: {e}")
-        return None
-
-
-def insert_to_db(conn, nazev_souboru: str, datum_stazeni: str, nadpis: str) -> bool:
-    """Vlozi zaznam do databaze."""
-    if not conn:
-        return False
-    
-    try:
+    def add_file(self, nazev_souboru: str, datum_stazeni: str, nadpis: str):
+        """Prida INSERT prikaz."""
         nadpis_norm = normalize_text(nadpis) if nadpis else None
         
-        with conn.cursor() as cursor:
-            sql = """
-                INSERT INTO soubory_z_jihomoravskeho_kraje 
-                (nazev_souboru, datum_stazeni, nadpis, nadpis_normalizovany)
-                VALUES (%s, %s, %s, %s)
-                ON DUPLICATE KEY UPDATE
-                    datum_stazeni = VALUES(datum_stazeni),
-                    nadpis = VALUES(nadpis),
-                    nadpis_normalizovany = VALUES(nadpis_normalizovany)
-            """
-            cursor.execute(sql, (nazev_souboru, datum_stazeni, nadpis, nadpis_norm))
-        conn.commit()
+        sql = f"""INSERT INTO soubory_z_jihomoravskeho_kraje (nazev_souboru, datum_stazeni, nadpis, nadpis_normalizovany)
+VALUES ({escape_sql(nazev_souboru)}, {escape_sql(datum_stazeni)}, {escape_sql(nadpis)}, {escape_sql(nadpis_norm)})
+ON DUPLICATE KEY UPDATE
+    datum_stazeni = VALUES(datum_stazeni),
+    nadpis = VALUES(nadpis),
+    nadpis_normalizovany = VALUES(nadpis_normalizovany);"""
+        self.statements.append(sql)
+    
+    def save(self):
+        """Ulozi SQL soubor."""
+        if not self.statements:
+            return False
+        
+        with open(self.filepath, "w", encoding="utf-8") as f:
+            f.write(f"-- Import JMK: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+            for stmt in self.statements:
+                f.write(stmt + "\n\n")
+        
+        log(f"SQL soubor vytvoren: {self.filepath} ({len(self.statements)} zaznamu)")
         return True
-    except Exception as e:
-        log(f"DB insert chyba: {e}")
-        return False
 
 
 # ================== HTTP FUNKCE ==================
@@ -395,12 +387,9 @@ def main():
     SAVE_DIR.mkdir(parents=True, exist_ok=True)
     log(f"Lokalni slozka: {SAVE_DIR}")
     
-    # Pripojeni k DB
-    db_conn = get_db_connection()
-    if db_conn:
-        log("Pripojeno k databazi")
-    else:
-        log("Databaze neni dostupna, pokracuji bez DB")
+    # SQL generator
+    sql_file = SAVE_DIR / SQL_FILENAME
+    sql_gen = SQLGenerator(sql_file)
     
     scraper = JMKScraper()
     
@@ -485,9 +474,9 @@ def main():
                         log(f"    FTP OK")
                         stats["files_uploaded"] += 1
                     
-                    # Ulozeni do DB
+                    # Pridat do SQL
                     datum_stazeni = f"{item['date_iso']} 00:00:00"
-                    insert_to_db(db_conn, final_name, datum_stazeni, nadpis)
+                    sql_gen.add_file(final_name, datum_stazeni, nadpis)
                 else:
                     log(f"    CHYBA {original_name}")
                     stats["files_failed"] += 1
@@ -496,9 +485,12 @@ def main():
             page += 1
             random_pause(PAUSE_MIN, PAUSE_MAX)
     
-    # Uzavreni DB
-    if db_conn:
-        db_conn.close()
+    # Ulozit a nahrat SQL soubor
+    if sql_gen.save():
+        if upload_to_ftp(sql_file, SQL_FILENAME):
+            log("SQL soubor nahran na FTP")
+        else:
+            log("CHYBA: SQL soubor se nenahral na FTP")
     
     # Shrnuti
     log("=== HOTOVO ===")

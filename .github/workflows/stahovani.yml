@@ -30,5 +30,6 @@ jobs:
           FTP_USER: ${{ secrets.FTP_USER }}
           FTP_PASS: ${{ secrets.FTP_PASS }}
           FTP_PATH: ${{ secrets.FTP_PATH }}
+          FTP_LOGS_PATH: ${{ secrets.FTP_LOGS_PATH }}
         run: |
           python edeska_jmk.py

@@ -4,13 +4,12 @@
 Stahovani dokumentu z uredni desky Jihomoravskeho kraje
 Pro automaticke spousteni pres GitHub Actions
 
-Stahne dokumenty za vcerejsi den, nahraje na FTP, ulozi do databaze.
+Stahne dokumenty za vcerejsi den, nahraje na FTP, vytvori SQL soubory a logy.
 """
 
 import os
 import re
 import sys
-import json
 import time
 import random
 import ftplib
@@ -24,20 +23,23 @@ from urllib.parse import urljoin
 
 BASE_URL = "https://eud.jmk.cz/Gordic/Ginis/App/UDE01/"
 SAVE_DIR = Path(__file__).parent / "stazene_soubory" / "jihomoravsky_kraj"
+LOGS_DIR = Path(__file__).parent / "logs" / "jihomoravsky_kraj"
 
 # Automaticky vcerejsek
 YESTERDAY = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
 FROM_DATE = YESTERDAY
 TO_DATE = YESTERDAY
 
+# SQL soubory
+SQL_IMPORT_FILE = Path(__file__).parent / "jmk_import.sql"
+SQL_LOGY_FILE = Path(__file__).parent / "jmk_logy.sql"
+
 # FTP konfigurace se cte z environment variables (GitHub Secrets)
 FTP_HOST = os.environ.get("FTP_HOST", "")
 FTP_USER = os.environ.get("FTP_USER", "")
 FTP_PASS = os.environ.get("FTP_PASS", "")
 FTP_PATH = os.environ.get("FTP_PATH", "")
-
-# Cesta pro SQL soubor na FTP (relativne k FTP_PATH)
-SQL_FILENAME = "jmk_import.sql"
+FTP_LOGS_PATH = os.environ.get("FTP_LOGS_PATH", "")  # /www/domains/chudst.cz/edeska/logs/jihomoravsky_kraj
 
 # Pauzy mezi requesty (v sekundach)
 PAUSE_MIN = 2.0
@@ -50,12 +52,43 @@ MAX_RETRIES = 3
 # User agent
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
+# DB identifikace
+DB_ZDROJ = "stahování"
+DB_STRANKY = "jihomoravsky_kraj"
+
+# ================== LOGGING ==================
+
+LOG_LINES = []
+LOG_FILE = None
+HAS_ERROR = False
+
+def init_logging():
+    """Inicializace logovani."""
+    global LOG_FILE
+    LOGS_DIR.mkdir(parents=True, exist_ok=True)
+    today = datetime.now().strftime("%Y-%m-%d")
+    LOG_FILE = LOGS_DIR / f"edeska_jmk_{today}.log"
+
+def log(msg: str, level: str = "INFO"):
+    """Logovani s casem - do souboru i na stdout."""
+    global HAS_ERROR
+    line = f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{level}] {msg}"
+    LOG_LINES.append(line)
+    print(line, flush=True)
+    
+    if level == "ERROR":
+        HAS_ERROR = True
+    
+    # Okamzity zapis do souboru
+    if LOG_FILE:
+        with open(LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+
+def get_log_text() -> str:
+    """Vrati cely log jako text."""
+    return "\n".join(LOG_LINES)
+
 # ================== HELPER FUNKCE ==================
-
-def log(msg: str):
-    """Logovani s casem."""
-    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}", flush=True)
-
 
 def random_pause(min_sec: float = PAUSE_MIN, max_sec: float = PAUSE_MAX):
     """Nahodna pauza."""
@@ -64,7 +97,7 @@ def random_pause(min_sec: float = PAUSE_MIN, max_sec: float = PAUSE_MAX):
 
 
 def get_available_filename(directory: Path, filename: str) -> str:
-    """Vrati unikatni nazev souboru, pri kolizi prida (1), (2)..."""
+    """Vrati unikatni nazev souboru, pri kolizi prida _1, _2..."""
     if '.' in filename:
         base, ext = filename.rsplit('.', 1)
         ext = '.' + ext
@@ -137,47 +170,25 @@ def sanitize_filename(filename: str) -> str:
     name = remove_diacritics(name)
     ext = remove_diacritics(ext)
     name = name.replace(' ', '_')
-    name = name.replace("'", "")  # Odstranit apostrofy
+    name = name.replace("'", "")
     name = re.sub(r'[^a-zA-Z0-9_\-]', '', name)
     
     return name + ext
 
 
-# ================== FTP ==================
-
-def upload_to_ftp(local_path: Path, remote_filename: str) -> bool:
-    """Nahraje soubor na FTP."""
-    if not all([FTP_HOST, FTP_USER, FTP_PASS, FTP_PATH]):
-        log("FTP neni nakonfigurovano, preskakuji upload")
-        return False
-    
-    try:
-        ftp = ftplib.FTP(FTP_HOST)
-        ftp.login(FTP_USER, FTP_PASS)
-        ftp.cwd(FTP_PATH)
-        
-        with open(local_path, 'rb') as f:
-            ftp.storbinary(f'STOR {remote_filename}', f)
-        
-        ftp.quit()
-        return True
-    except Exception as e:
-        log(f"FTP chyba: {e}")
-        return False
-
-
-# ================== SQL SOUBOR ==================
-
 def escape_sql(text: str) -> str:
     """Escapuje text pro SQL."""
     if text is None:
         return "NULL"
-    # Nahradit backslash a apostrof
     escaped = text.replace("\\", "\\\\").replace("'", "''")
     return f"'{escaped}'"
 
 
-class SQLGenerator:
+# ================== SQL GENERATORS ==================
+
+class SQLImportGenerator:
+    """Generuje SQL pro import do soubory_z_jihomoravskeho_kraje."""
+    
     def __init__(self, filepath: Path):
         self.filepath = filepath
         self.statements = []
@@ -194,18 +205,92 @@ ON DUPLICATE KEY UPDATE
     nadpis_normalizovany = VALUES(nadpis_normalizovany);"""
         self.statements.append(sql)
     
-    def save(self):
+    def save(self) -> bool:
         """Ulozi SQL soubor."""
-        if not self.statements:
-            return False
-        
         with open(self.filepath, "w", encoding="utf-8") as f:
-            f.write(f"-- Import JMK: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+            f.write(f"-- Import JMK: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"-- Pocet zaznamu: {len(self.statements)}\n\n")
             for stmt in self.statements:
                 f.write(stmt + "\n\n")
         
-        log(f"SQL soubor vytvoren: {self.filepath} ({len(self.statements)} zaznamu)")
+        log(f"SQL import soubor vytvoren: {self.filepath} ({len(self.statements)} zaznamu)")
         return True
+
+
+class SQLLogyGenerator:
+    """Generuje SQL pro zapis do tabulky logy."""
+    
+    def __init__(self, filepath: Path):
+        self.filepath = filepath
+    
+    def save(self, log_text: str, has_error: bool, marker_today: bool = True):
+        """Ulozi SQL soubor pro logy."""
+        datum = datetime.now().strftime("%Y-%m-%d")
+        problem = "ano" if has_error else "ne"
+        marker = f"'{datum}'" if marker_today else "NULL"
+        
+        sql = f"""-- Logy JMK: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+INSERT INTO logy (datum, zdroj, stranky, text, problem, marker_datum)
+VALUES ('{datum}', {escape_sql(DB_ZDROJ)}, {escape_sql(DB_STRANKY)}, {escape_sql(log_text)}, '{problem}', {marker})
+ON DUPLICATE KEY UPDATE
+    text = CONCAT(COALESCE(text, ''), '\n', VALUES(text)),
+    problem = VALUES(problem),
+    marker_datum = VALUES(marker_datum);
+"""
+        
+        with open(self.filepath, "w", encoding="utf-8") as f:
+            f.write(sql)
+        
+        log(f"SQL logy soubor vytvoren: {self.filepath}")
+
+
+# ================== FTP ==================
+
+def upload_to_ftp(local_path: Path, remote_path: str, remote_filename: str) -> bool:
+    """Nahraje soubor na FTP."""
+    if not all([FTP_HOST, FTP_USER, FTP_PASS, remote_path]):
+        log("FTP neni nakonfigurovano, preskakuji upload", "WARN")
+        return False
+    
+    try:
+        ftp = ftplib.FTP(FTP_HOST)
+        ftp.login(FTP_USER, FTP_PASS)
+        ftp.cwd(remote_path)
+        
+        with open(local_path, 'rb') as f:
+            ftp.storbinary(f'STOR {remote_filename}', f)
+        
+        ftp.quit()
+        return True
+    except Exception as e:
+        log(f"FTP chyba: {e}", "ERROR")
+        return False
+
+
+def upload_file_to_ftp(local_path: Path, remote_filename: str) -> bool:
+    """Nahraje soubor na FTP do hlavni slozky."""
+    return upload_to_ftp(local_path, FTP_PATH, remote_filename)
+
+
+def upload_log_to_ftp(local_path: Path, remote_filename: str) -> bool:
+    """Nahraje log soubor na FTP do logs slozky."""
+    if not FTP_LOGS_PATH:
+        # Fallback na hlavni cestu + /logs/jihomoravsky_kraj
+        logs_path = FTP_PATH.rsplit('/', 2)[0] + "/logs/jihomoravsky_kraj" if FTP_PATH else ""
+    else:
+        logs_path = FTP_LOGS_PATH
+    return upload_to_ftp(local_path, logs_path, remote_filename)
+
+
+def upload_sql_to_ftp(local_path: Path, remote_filename: str) -> bool:
+    """Nahraje SQL soubor na FTP do korene edeska."""
+    # SQL soubory jdou do /www/domains/chudst.cz/edeska/
+    if FTP_PATH:
+        base_path = FTP_PATH.rsplit('/', 2)[0]  # odstrani /stazene_soubory/jihomoravsky_kraj
+    else:
+        base_path = ""
+    return upload_to_ftp(local_path, base_path, remote_filename)
 
 
 # ================== HTTP FUNKCE ==================
@@ -246,11 +331,11 @@ class JMKScraper:
                 
         except Exception as e:
             if retry < MAX_RETRIES:
-                log(f"  Chyba: {e}, cekam {PAUSE_ON_ERROR}s a zkousim znovu...")
+                log(f"Chyba: {e}, cekam {PAUSE_ON_ERROR}s a zkousim znovu...", "WARN")
                 time.sleep(PAUSE_ON_ERROR)
                 return self.get_page(url, retry + 1)
             else:
-                log(f"  Chyba po {MAX_RETRIES} pokusech: {e}")
+                log(f"Chyba po {MAX_RETRIES} pokusech: {e}", "ERROR")
                 return None
     
     def post_page(self, url: str, data: dict, retry: int = 0) -> str | None:
@@ -268,11 +353,11 @@ class JMKScraper:
                 
         except Exception as e:
             if retry < MAX_RETRIES:
-                log(f"  Chyba: {e}, cekam {PAUSE_ON_ERROR}s a zkousim znovu...")
+                log(f"Chyba: {e}, cekam {PAUSE_ON_ERROR}s a zkousim znovu...", "WARN")
                 time.sleep(PAUSE_ON_ERROR)
                 return self.post_page(url, data, retry + 1)
             else:
-                log(f"  Chyba po {MAX_RETRIES} pokusech: {e}")
+                log(f"Chyba po {MAX_RETRIES} pokusech: {e}", "ERROR")
                 return None
     
     def download_file(self, url: str, save_path: Path, retry: int = 0) -> bool:
@@ -290,7 +375,7 @@ class JMKScraper:
                     raise Exception("Server vratil chybovou stranku")
                 content_lower = content.lower()
                 if b"dokument" in content_lower and b"dispozici" in content_lower:
-                    log(f"    Dokument neni k dispozici")
+                    log(f"Dokument neni k dispozici", "WARN")
                     return False
             
             save_path.parent.mkdir(parents=True, exist_ok=True)
@@ -302,11 +387,11 @@ class JMKScraper:
             
         except Exception as e:
             if retry < MAX_RETRIES:
-                log(f"    Chyba stahovani: {e}, cekam {PAUSE_ON_ERROR}s...")
+                log(f"Chyba stahovani: {e}, cekam {PAUSE_ON_ERROR}s...", "WARN")
                 time.sleep(PAUSE_ON_ERROR)
                 return self.download_file(url, save_path, retry + 1)
             else:
-                log(f"    Chyba stahovani po {MAX_RETRIES} pokusech: {e}")
+                log(f"Chyba stahovani po {MAX_RETRIES} pokusech: {e}", "ERROR")
                 return False
     
     def get_list_page(self, page: int = 1) -> str | None:
@@ -380,6 +465,8 @@ class JMKScraper:
 # ================== HLAVNI LOGIKA ==================
 
 def main():
+    init_logging()
+    
     from_date = datetime.strptime(FROM_DATE, "%Y-%m-%d")
     to_date = datetime.strptime(TO_DATE, "%Y-%m-%d")
     
@@ -389,9 +476,9 @@ def main():
     SAVE_DIR.mkdir(parents=True, exist_ok=True)
     log(f"Lokalni slozka: {SAVE_DIR}")
     
-    # SQL generator
-    sql_file = SAVE_DIR / SQL_FILENAME
-    sql_gen = SQLGenerator(sql_file)
+    # SQL generatory
+    sql_import = SQLImportGenerator(SQL_IMPORT_FILE)
+    sql_logy = SQLLogyGenerator(SQL_LOGY_FILE)
     
     scraper = JMKScraper()
     
@@ -411,7 +498,7 @@ def main():
         
         html = scraper.get_list_page(page)
         if not html:
-            log("Chyba nacitani stranky, koncim.")
+            log("Chyba nacitani stranky, koncim.", "ERROR")
             break
         
         items = scraper.parse_list_page(html)
@@ -420,7 +507,7 @@ def main():
             log("Zadne polozky na strance, koncim.")
             break
         
-        log(f"  Nalezeno {len(items)} polozek")
+        log(f"Nalezeno {len(items)} polozek")
         stats["pages_processed"] += 1
         
         for item in items:
@@ -432,11 +519,11 @@ def main():
             
             # Filtr: ukoncit pokud jsme starsi nez from_date
             if item_date < from_date:
-                log(f"  Dosazeno data {item['date']} (starsi nez {FROM_DATE}), koncim.")
+                log(f"Dosazeno data {item['date']} (starsi nez {FROM_DATE}), koncim.")
                 finished = True
                 break
             
-            log(f"  -> {item['name']} ({item['date']})")
+            log(f"-> {item['name']} ({item['date']})")
             stats["items_processed"] += 1
             
             random_pause()
@@ -445,13 +532,13 @@ def main():
             detail_html = scraper.get_page(detail_url)
             
             if not detail_html:
-                log("    Chyba nacitani detailu")
+                log("Chyba nacitani detailu", "ERROR")
                 continue
             
             files = scraper.parse_detail_page(detail_html)
             
             if not files:
-                log("    (zadne soubory)")
+                log("(zadne soubory)")
                 continue
             
             nadpis = capitalize_first(item["name"])
@@ -468,31 +555,26 @@ def main():
                 
                 file_url = urljoin(BASE_URL, file_info["url"])
                 if scraper.download_file(file_url, save_path):
-                    log(f"    OK {final_name}")
+                    log(f"OK {final_name}")
                     stats["files_downloaded"] += 1
                     
                     # Upload na FTP
-                    if upload_to_ftp(save_path, final_name):
-                        log(f"    FTP OK")
+                    if upload_file_to_ftp(save_path, final_name):
+                        log(f"FTP OK")
                         stats["files_uploaded"] += 1
+                    else:
+                        log(f"FTP CHYBA", "ERROR")
                     
-                    # Pridat do SQL
+                    # Pridat do SQL importu
                     datum_stazeni = f"{item['date_iso']} 00:00:00"
-                    sql_gen.add_file(final_name, datum_stazeni, nadpis)
+                    sql_import.add_file(final_name, datum_stazeni, nadpis)
                 else:
-                    log(f"    CHYBA {original_name}")
+                    log(f"CHYBA {original_name}", "ERROR")
                     stats["files_failed"] += 1
         
         if not finished:
             page += 1
             random_pause(PAUSE_MIN, PAUSE_MAX)
-    
-    # Ulozit a nahrat SQL soubor
-    if sql_gen.save():
-        if upload_to_ftp(sql_file, SQL_FILENAME):
-            log("SQL soubor nahran na FTP")
-        else:
-            log("CHYBA: SQL soubor se nenahral na FTP")
     
     # Shrnuti
     log("=== HOTOVO ===")
@@ -501,6 +583,29 @@ def main():
     log(f"Stazeno souboru: {stats['files_downloaded']}")
     log(f"Nahrano na FTP: {stats['files_uploaded']}")
     log(f"Selhalo: {stats['files_failed']}")
+    
+    # Ulozit SQL soubory
+    if sql_import.statements:
+        sql_import.save()
+        upload_sql_to_ftp(SQL_IMPORT_FILE, "jmk_import.sql")
+    else:
+        log("Zadne soubory ke stazeni, SQL import nevytvoren.")
+    
+    # Ulozit logy SQL
+    sql_logy.save(get_log_text(), HAS_ERROR, marker_today=True)
+    upload_sql_to_ftp(SQL_LOGY_FILE, "jmk_logy.sql")
+    
+    # Upload log souboru
+    if LOG_FILE and LOG_FILE.exists():
+        upload_log_to_ftp(LOG_FILE, LOG_FILE.name)
+    
+    # Navratovy kod
+    if HAS_ERROR:
+        log("Skript skoncil s chybami.", "ERROR")
+        sys.exit(1)
+    else:
+        log("Skript skoncil uspesne.")
+        sys.exit(0)
 
 
 if __name__ == "__main__":

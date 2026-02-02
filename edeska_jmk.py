@@ -25,10 +25,31 @@ BASE_URL = "https://eud.jmk.cz/Gordic/Ginis/App/UDE01/"
 SAVE_DIR = Path(__file__).parent / "stazene_soubory" / "jihomoravsky_kraj"
 LOGS_DIR = Path(__file__).parent / "logs" / "jihomoravsky_kraj"
 
-# Automaticky vcerejsek
-YESTERDAY = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
-FROM_DATE = YESTERDAY
-TO_DATE = YESTERDAY
+# ================== REZIM STAHOVANI ==================
+# 'yesterday' = automaticky vcerejsek (pro CRON)
+# 'range'     = rucni rezim s rozmezim dat (nastavit RANGE_FROM a RANGE_TO)
+
+MODE = 'yesterday'
+
+# Pro rucni rezim (MODE = 'range'):
+# Format: YYYY-MM-DD
+RANGE_FROM = '2025-01-14'
+RANGE_TO = '2025-01-14'
+
+# ================== VYPOCET DAT ==================
+
+if MODE == 'yesterday':
+    YESTERDAY = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+    FROM_DATE = YESTERDAY
+    TO_DATE = YESTERDAY
+elif MODE == 'range':
+    FROM_DATE = RANGE_FROM
+    TO_DATE = RANGE_TO
+else:
+    # Fallback na vcerejsek
+    YESTERDAY = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+    FROM_DATE = YESTERDAY
+    TO_DATE = YESTERDAY
 
 # SQL soubory
 SQL_IMPORT_FILE = Path(__file__).parent / "jmk_import.sql"

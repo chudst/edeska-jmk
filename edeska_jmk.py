@@ -34,7 +34,7 @@ MODE = 'range'
 # Pro rucni rezim (MODE = 'range'):
 # Format: YYYY-MM-DD
 RANGE_FROM = '2026-01-30'
-RANGE_TO = '2065-02-02'
+RANGE_TO = '2026-02-02'
 
 # ================== VYPOCET DAT ==================
 

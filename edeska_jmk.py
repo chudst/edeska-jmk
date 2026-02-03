@@ -29,7 +29,7 @@ LOGS_DIR = Path(__file__).parent / "logs" / "jihomoravsky_kraj"
 # 'yesterday' = automaticky vcerejsek (pro CRON)
 # 'range'     = rucni rezim s rozmezim dat (nastavit RANGE_FROM a RANGE_TO)
 
-MODE = 'yesterday'
+MODE = 'range'
 
 # Pro rucni rezim (MODE = 'range'):
 # Format: YYYY-MM-DD

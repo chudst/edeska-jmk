@@ -33,8 +33,8 @@ MODE = 'yesterday'
 
 # Pro rucni rezim (MODE = 'range'):
 # Format: YYYY-MM-DD
-RANGE_FROM = '2025-01-14'
-RANGE_TO = '2025-01-14'
+RANGE_FROM = '2025-01-30'
+RANGE_TO = '2025-01-30'
 
 # ================== VYPOCET DAT ==================
 

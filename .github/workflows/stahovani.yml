@@ -2,8 +2,8 @@ name: Stahování z úřední desky JMK
 
 on:
   schedule:
-    # Spousti se kazdy den v 4:00 rano (UTC), tj. 5:00 nebo 6:00 CET/CEST
-    - cron: '0 4 * * *'
+    # Spousti se kazdy den v 2:30 rano (UTC), tj. 3:30 nebo 4:30 CET/CEST
+    - cron: '30 2 * * *'
   workflow_dispatch:
     # Umozni rucni spusteni z GitHubu
 

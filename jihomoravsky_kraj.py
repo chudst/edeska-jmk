@@ -59,8 +59,10 @@ SQL_LOGY_FILE = Path(__file__).parent / "jmk_logy.sql"
 FTP_HOST = os.environ.get("FTP_HOST", "")
 FTP_USER = os.environ.get("FTP_USER", "")
 FTP_PASS = os.environ.get("FTP_PASS", "")
-FTP_PATH = os.environ.get("FTP_PATH", "")
-FTP_LOGS_PATH = os.environ.get("FTP_LOGS_PATH", "")  # /www/domains/chudst.cz/edeska/logs/jihomoravsky_kraj
+FTP_BASE_PATH = os.environ.get("FTP_BASE_PATH", "")  # /www/domains/chudst.cz/edeska
+FTP_PATH = FTP_BASE_PATH + "/stazene_soubory/jihomoravsky_kraj" if FTP_BASE_PATH else ""
+FTP_LOGS_PATH = FTP_BASE_PATH + "/logs/jihomoravsky_kraj" if FTP_BASE_PATH else ""
+FTP_SQL_PATH = FTP_BASE_PATH if FTP_BASE_PATH else ""
 
 # Pauzy mezi requesty (v sekundach)
 PAUSE_MIN = 2.0
@@ -296,22 +298,12 @@ def upload_file_to_ftp(local_path: Path, remote_filename: str) -> bool:
 
 def upload_log_to_ftp(local_path: Path, remote_filename: str) -> bool:
     """Nahraje log soubor na FTP do logs slozky."""
-    if not FTP_LOGS_PATH:
-        # Fallback na hlavni cestu + /logs/jihomoravsky_kraj
-        logs_path = FTP_PATH.rsplit('/', 2)[0] + "/logs/jihomoravsky_kraj" if FTP_PATH else ""
-    else:
-        logs_path = FTP_LOGS_PATH
-    return upload_to_ftp(local_path, logs_path, remote_filename)
+    return upload_to_ftp(local_path, FTP_LOGS_PATH, remote_filename)
 
 
 def upload_sql_to_ftp(local_path: Path, remote_filename: str) -> bool:
     """Nahraje SQL soubor na FTP do korene edeska."""
-    # SQL soubory jdou do /www/domains/chudst.cz/edeska/
-    if FTP_PATH:
-        base_path = FTP_PATH.rsplit('/', 2)[0]  # odstrani /stazene_soubory/jihomoravsky_kraj
-    else:
-        base_path = ""
-    return upload_to_ftp(local_path, base_path, remote_filename)
+    return upload_to_ftp(local_path, FTP_SQL_PATH, remote_filename)
 
 
 # ================== HTTP FUNKCE ==================

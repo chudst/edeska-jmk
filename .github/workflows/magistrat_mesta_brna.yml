@@ -30,7 +30,6 @@ jobs:
           FTP_HOST: ${{ secrets.FTP_HOST }}
           FTP_USER: ${{ secrets.FTP_USER }}
           FTP_PASS: ${{ secrets.FTP_PASS }}
-          FTP_PATH_BRNO: ${{ secrets.FTP_PATH_BRNO }}
-          FTP_LOGS_PATH_BRNO: ${{ secrets.FTP_LOGS_PATH_BRNO }}
+          FTP_BASE_PATH: ${{ secrets.FTP_BASE_PATH }}
         run: |
           python magistrat_mesta_brna.py

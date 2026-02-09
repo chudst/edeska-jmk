@@ -1,4 +1,4 @@
-name: Stahování z úřední desky: Magistrát města Brna
+name: Stahování z úřední desky - Magistrát města Brna
 
 on:
   workflow_run:

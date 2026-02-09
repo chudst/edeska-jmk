@@ -1,8 +1,8 @@
-name: Stahování z úřední desky Brno
+name: Stahování z úřední desky: Magistrát města Brna
 
 on:
   workflow_run:
-    workflows: ["Stahování z úřední desky JMK"]
+    workflows: ["Stahování z úřední desky: Jihomoravský kraj"]
     types:
       - completed
   workflow_dispatch:

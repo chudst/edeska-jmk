@@ -1,0 +1,36 @@
+name: Stahování z úřední desky Brno
+
+on:
+  workflow_run:
+    workflows: ["Stahování z úřední desky JMK"]
+    types:
+      - completed
+  workflow_dispatch:
+    # Umozni rucni spusteni z GitHubu
+
+jobs:
+  stahovani:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repozitare
+        uses: actions/checkout@v4
+
+      - name: Nastaveni Pythonu
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instalace zavislosti
+        run: |
+          pip install requests
+
+      - name: Spusteni skriptu
+        env:
+          FTP_HOST: ${{ secrets.FTP_HOST }}
+          FTP_USER: ${{ secrets.FTP_USER }}
+          FTP_PASS: ${{ secrets.FTP_PASS }}
+          FTP_PATH_BRNO: ${{ secrets.FTP_PATH_BRNO }}
+          FTP_LOGS_PATH_BRNO: ${{ secrets.FTP_LOGS_PATH_BRNO }}
+        run: |
+          python magistrat_mesta_brna.py

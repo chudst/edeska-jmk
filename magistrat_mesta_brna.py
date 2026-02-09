@@ -335,6 +335,7 @@ def upload_sql_to_ftp(local_path: Path, remote_filename: str) -> bool:
 class BrnoScraper:
     def __init__(self):
         self.session = requests.Session()
+        self.session.verify = False
         self.session.headers.update({
             "User-Agent": USER_AGENT,
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",

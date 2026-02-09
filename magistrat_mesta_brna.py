@@ -14,6 +14,8 @@ import time
 import random
 import ftplib
 import requests
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 import unicodedata
 from datetime import datetime, timedelta
 from pathlib import Path

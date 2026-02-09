@@ -1,4 +1,4 @@
-name: Stahování z úřední desky JMK
+name: Stahování z úřední desky: Jihomoravský kraj
 
 on:
   schedule:
@@ -32,4 +32,4 @@ jobs:
           FTP_PATH: ${{ secrets.FTP_PATH }}
           FTP_LOGS_PATH: ${{ secrets.FTP_LOGS_PATH }}
         run: |
-          python edeska_jmk.py
+          python jihomoravsky_kraj.py

@@ -88,7 +88,7 @@ def init_logging():
     global LOG_FILE
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
     today = datetime.now().strftime("%Y-%m-%d")
-    LOG_FILE = LOGS_DIR / f"edeska_jmk_{today}.log"
+    LOG_FILE = LOGS_DIR / f"jihomoravsky_kraj_{today}.log"
 
 def log(msg: str, level: str = "INFO"):
     """Logovani s casem - do souboru i na stdout."""
@@ -491,7 +491,7 @@ def main():
     from_date = datetime.strptime(FROM_DATE, "%Y-%m-%d")
     to_date = datetime.strptime(TO_DATE, "%Y-%m-%d")
     
-    log("=== Stahovani z uredni desky JMK ===")
+    log("=== Stahovani z uredni desky: Jihomoravsky kraj ===")
     log(f"Datum: {FROM_DATE}")
     
     SAVE_DIR.mkdir(parents=True, exist_ok=True)

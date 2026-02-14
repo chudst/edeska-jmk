@@ -210,7 +210,7 @@ def escape_sql(text: str) -> str:
 # ================== SQL GENERATORS ==================
 
 class SQLImportGenerator:
-    """Generuje SQL pro import do soubory_z_jihomoravskeho_kraje."""
+    """Generuje SQL pro import do soubory_jihomoravsky_kraj."""
     
     def __init__(self, filepath: Path):
         self.filepath = filepath
@@ -220,7 +220,7 @@ class SQLImportGenerator:
         """Prida INSERT prikaz."""
         nadpis_norm = normalize_text(nadpis) if nadpis else None
         
-        sql = f"""INSERT INTO soubory_z_jihomoravskeho_kraje (nazev_souboru, datum_stazeni, nadpis, nadpis_normalizovany)
+        sql = f"""INSERT INTO soubory_jihomoravsky_kraj (nazev_souboru, datum_stazeni, nadpis, nadpis_normalizovany)
 VALUES ({escape_sql(nazev_souboru)}, {escape_sql(datum_stazeni)}, {escape_sql(nadpis)}, {escape_sql(nadpis_norm)})
 ON DUPLICATE KEY UPDATE
     datum_stazeni = VALUES(datum_stazeni),

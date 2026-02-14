@@ -34,7 +34,7 @@ LOGS_DIR = Path(__file__).parent / "logs" / "magistrat_mesta_brna"
 # 'yesterday' = automaticky vcerejsek (pro CRON)
 # 'range'     = rucni rezim s rozmezim dat (nastavit RANGE_FROM a RANGE_TO)
 
-MODE = 'range'
+MODE = 'yesterday'
 
 # Pro rucni rezim (MODE = 'range'):
 # Format: YYYY-MM-DD

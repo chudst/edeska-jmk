@@ -38,8 +38,8 @@ MODE = 'range'
 
 # Pro rucni rezim (MODE = 'range'):
 # Format: YYYY-MM-DD
-RANGE_FROM = '2026-02-11'
-RANGE_TO = '2026-02-11'
+RANGE_FROM = '2026-02-14'
+RANGE_TO = '2026-02-10'
 
 # ================== VYPOCET DAT ==================
 

@@ -52,8 +52,8 @@ else:
     TO_DATE = YESTERDAY
 
 # SQL soubory
-SQL_IMPORT_FILE = Path(__file__).parent / "jmk_import.sql"
-SQL_LOGY_FILE = Path(__file__).parent / "jmk_logy.sql"
+SQL_IMPORT_FILE = Path(__file__).parent / "soubory_jihomoravsky_kraj.sql"
+SQL_LOGY_FILE = Path(__file__).parent / "soubory_jihomoravsky_kraj_logy.sql"
 
 # FTP konfigurace se cte z environment variables (GitHub Secrets)
 FTP_HOST = os.environ.get("FTP_HOST", "")
@@ -600,13 +600,13 @@ def main():
     # Ulozit SQL soubory
     if sql_import.statements:
         sql_import.save()
-        upload_sql_to_ftp(SQL_IMPORT_FILE, "jmk_import.sql")
+        upload_sql_to_ftp(SQL_IMPORT_FILE, "soubory_jihomoravsky_kraj.sql")
     else:
         log("Zadne soubory ke stazeni, SQL import nevytvoren.")
     
     # Ulozit logy SQL
     sql_logy.save(get_log_text(), HAS_ERROR, marker_today=True)
-    upload_sql_to_ftp(SQL_LOGY_FILE, "jmk_logy.sql")
+    upload_sql_to_ftp(SQL_LOGY_FILE, "soubory_jihomoravsky_kraj_logy.sql")
     
     # Upload log souboru
     if LOG_FILE and LOG_FILE.exists():

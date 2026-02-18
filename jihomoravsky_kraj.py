@@ -18,6 +18,7 @@ import unicodedata
 from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import urljoin
+from html import unescape
 
 # ================== NASTAVENI ==================
 
@@ -29,12 +30,12 @@ LOGS_DIR = Path(__file__).parent / "logs" / "jihomoravsky_kraj"
 # 'yesterday' = automaticky vcerejsek (pro CRON)
 # 'range'     = rucni rezim s rozmezim dat (nastavit RANGE_FROM a RANGE_TO)
 
-MODE = 'yesterday'
+MODE = 'range'
 
 # Pro rucni rezim (MODE = 'range'):
 # Format: YYYY-MM-DD
-RANGE_FROM = '2026-01-30'
-RANGE_TO = '2026-02-02'
+RANGE_FROM = '2000-01-01'
+RANGE_TO = '2026-02-15'
 
 # ================== VYPOCET DAT ==================
 
@@ -199,6 +200,16 @@ def sanitize_filename(filename: str) -> str:
     return name + ext
 
 
+def clean_html_text(text: str) -> str:
+    """Vycisti HTML text - unescape entities, odstrani tagy, trim."""
+    if not text:
+        return ""
+    text = unescape(text)
+    text = re.sub(r'<[^>]+>', ' ', text)
+    text = re.sub(r'\s+', ' ', text)
+    return text.strip()
+
+
 def escape_sql(text: str) -> str:
     """Escapuje text pro SQL."""
     if text is None:
@@ -216,16 +227,24 @@ class SQLImportGenerator:
         self.filepath = filepath
         self.statements = []
     
-    def add_file(self, nazev_souboru: str, datum_stazeni: str, nadpis: str):
+    def add_file(self, kategorie: str, nazev: str, popis: str, cislo_jednaci: str,
+                 zverejnit_od: str, zverejnit_do: str, oblast: str,
+                 nazev_souboru: str, datum_stazeni: str):
         """Prida INSERT prikaz."""
-        nadpis_norm = normalize_text(nadpis) if nadpis else None
-        
-        sql = f"""INSERT INTO soubory_jihomoravsky_kraj (nazev_souboru, datum_stazeni, nadpis, nadpis_normalizovany)
-VALUES ({escape_sql(nazev_souboru)}, {escape_sql(datum_stazeni)}, {escape_sql(nadpis)}, {escape_sql(nadpis_norm)})
+        nazev_norm = normalize_text(nazev) if nazev else None
+
+        sql = f"""INSERT INTO soubory_jihomoravsky_kraj (kategorie, nazev, popis, cislo_jednaci, zverejnit_od, zverejnit_do, oblast, nazev_souboru, datum_stazeni, nazev_normalizovany)
+VALUES ({escape_sql(kategorie)}, {escape_sql(nazev)}, {escape_sql(popis)}, {escape_sql(cislo_jednaci)}, {escape_sql(zverejnit_od)}, {escape_sql(zverejnit_do)}, {escape_sql(oblast)}, {escape_sql(nazev_souboru)}, {escape_sql(datum_stazeni)}, {escape_sql(nazev_norm)})
 ON DUPLICATE KEY UPDATE
+    kategorie = VALUES(kategorie),
+    nazev = VALUES(nazev),
+    popis = VALUES(popis),
+    cislo_jednaci = VALUES(cislo_jednaci),
+    zverejnit_od = VALUES(zverejnit_od),
+    zverejnit_do = VALUES(zverejnit_do),
+    oblast = VALUES(oblast),
     datum_stazeni = VALUES(datum_stazeni),
-    nadpis = VALUES(nadpis),
-    nadpis_normalizovany = VALUES(nadpis_normalizovany);"""
+    nazev_normalizovany = VALUES(nazev_normalizovany);"""
         self.statements.append(sql)
     
     def save(self) -> bool:
@@ -431,29 +450,56 @@ class JMKScraper:
     def parse_list_page(self, html: str) -> list[dict]:
         """Parsuje seznam polozek ze stranky."""
         items = []
-        
+
         rows = re.findall(r'<tr>\s*<td class="Priloha">.*?</tr>', html, re.DOTALL)
-        
+
         for row in rows:
-            date_match = re.search(r'<td class="VyveseniDneTd[LS]"[^>]*>(\d{2}\.\d{2}\.\d{4})</td>', row)
-            if not date_match:
+            # Kategorie
+            kategorie_match = re.search(r'<td class="KategorieTd[LS]"[^>]*>(.*?)</td>', row, re.DOTALL)
+            kategorie = clean_html_text(kategorie_match.group(1)) if kategorie_match else ""
+
+            # Nazev + detail URL
+            nazev_match = re.search(r'<td class="NazevTd[LS]"[^>]*><a[^>]+href=[\'"]([^\'"]+)[\'"][^>]*>(.*?)</a>', row, re.DOTALL)
+            if not nazev_match:
                 continue
-            date = date_match.group(1)
-            
-            link_match = re.search(r'<td class="NazevTd[LS]"[^>]*><a[^>]+href=[\'"]([^\'"]+)[\'"][^>]*>([^<]+)</a>', row)
-            if not link_match:
+            detail_url = nazev_match.group(1)
+            nazev = clean_html_text(nazev_match.group(2))
+
+            # Popis
+            popis_match = re.search(r'<td class="PopisTd[LS]"[^>]*>(.*?)</td>', row, re.DOTALL)
+            popis = clean_html_text(popis_match.group(1)) if popis_match else ""
+
+            # Znacka (cislo jednaci)
+            znacka_match = re.search(r'<td class="ZnackaTd[LS]"[^>]*>(.*?)</td>', row, re.DOTALL)
+            znacka = clean_html_text(znacka_match.group(1)) if znacka_match else ""
+
+            # Vyveseni dne
+            vyveseni_match = re.search(r'<td class="VyveseniDneTd[LS]"[^>]*>(\d{2}\.\d{2}\.\d{4})</td>', row)
+            if not vyveseni_match:
                 continue
-            
-            detail_url = link_match.group(1)
-            name = link_match.group(2).strip()
-            
+            vyveseni_dne = vyveseni_match.group(1)
+
+            # Sejmuti dne
+            sejmuti_match = re.search(r'<td class="SejmutiDneTd[LS]"[^>]*>(\d{2}\.\d{2}\.\d{4})</td>', row)
+            sejmuti_dne = sejmuti_match.group(1) if sejmuti_match else ""
+
+            # Zdroj
+            zdroj_match = re.search(r'<td class="ZdrojTd[LS]"[^>]*>(.*?)</td>', row, re.DOTALL)
+            zdroj = clean_html_text(zdroj_match.group(1)) if zdroj_match else ""
+
             items.append({
-                "date": date,
-                "date_iso": format_date_iso(date),
+                "kategorie": kategorie,
+                "nazev": nazev,
+                "popis": popis,
+                "cislo_jednaci": znacka,
+                "vyveseni_dne": vyveseni_dne,
+                "vyveseni_dne_iso": format_date_iso(vyveseni_dne),
+                "sejmuti_dne": sejmuti_dne,
+                "sejmuti_dne_iso": format_date_iso(sejmuti_dne) if sejmuti_dne else "",
+                "zdroj": zdroj,
                 "detail_url": detail_url,
-                "name": name,
             })
-        
+
         return items
     
     def parse_detail_page(self, html: str) -> list[dict]:
@@ -524,63 +570,71 @@ def main():
         stats["pages_processed"] += 1
         
         for item in items:
-            item_date = parse_date_cz(item["date"])
-            
+            item_date = parse_date_cz(item["vyveseni_dne"])
+
             # Filtr: preskocit novejsi nez to_date
             if item_date > to_date:
                 continue
-            
+
             # Filtr: ukoncit pokud jsme starsi nez from_date
             if item_date < from_date:
-                log(f"Dosazeno data {item['date']} (starsi nez {FROM_DATE}), koncim.")
+                log(f"Dosazeno data {item['vyveseni_dne']} (starsi nez {FROM_DATE}), koncim.")
                 finished = True
                 break
-            
-            log(f"-> {item['name']} ({item['date']})")
+
+            log(f"-> {item['nazev']} ({item['vyveseni_dne']})")
             stats["items_processed"] += 1
-            
+
             random_pause()
-            
+
             detail_url = urljoin(BASE_URL, item["detail_url"])
             detail_html = scraper.get_page(detail_url)
-            
+
             if not detail_html:
                 log("Chyba nacitani detailu", "ERROR")
                 continue
-            
+
             files = scraper.parse_detail_page(detail_html)
-            
+
             if not files:
                 log("(zadne soubory)")
                 continue
-            
-            nadpis = capitalize_first(item["name"])
-            
+
             for file_info in files:
                 original_name = file_info["filename"]
                 sanitized_name = sanitize_filename(original_name)
-                new_name = f"{item['date_iso']}_{sanitized_name}"
-                
+                new_name = f"{item['vyveseni_dne_iso']}_{sanitized_name}"
+
                 final_name = get_available_filename(SAVE_DIR, new_name)
                 save_path = SAVE_DIR / final_name
-                
+
                 random_pause()
-                
+
                 file_url = urljoin(BASE_URL, file_info["url"])
                 if scraper.download_file(file_url, save_path):
                     log(f"OK {final_name}")
                     stats["files_downloaded"] += 1
-                    
+
                     # Upload na FTP
                     if upload_file_to_ftp(save_path, final_name):
                         log(f"FTP OK")
                         stats["files_uploaded"] += 1
                     else:
                         log(f"FTP CHYBA", "ERROR")
-                    
+
                     # Pridat do SQL importu
-                    datum_stazeni = f"{item['date_iso']} 00:00:00"
-                    sql_import.add_file(final_name, datum_stazeni, nadpis)
+                    datum_stazeni = f"{item['vyveseni_dne_iso']} 00:00:00"
+                    sql_import.add_file(
+                        kategorie=item["kategorie"],
+                        nazev=item["nazev"],
+                        popis=item["popis"],
+                        cislo_jednaci=item["cislo_jednaci"],
+                        zverejnit_od=item["vyveseni_dne_iso"],
+                        zverejnit_do=item["sejmuti_dne_iso"],
+                        oblast=item["zdroj"],
+                        nazev_souboru=final_name,
+                        datum_stazeni=datum_stazeni,
+                    )
                 else:
                     log(f"CHYBA {original_name}", "ERROR")
                     stats["files_failed"] += 1
